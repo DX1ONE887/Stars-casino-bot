@@ -102,7 +102,7 @@ async def run_webhook_mode(application: Application) -> None:
         
         try:
             data = await request.json()
-            logger.info(f"Получено обновление от Telegram: {data}")
+            logger.info(f"Получено обновление от Telegram")
             await application.update_queue.put(data)
             return web.Response()
         except Exception as e:
