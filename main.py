@@ -31,87 +31,8 @@ async def post_init(application: Application) -> None:
 
 def setup_handlers(application: Application) -> None:
     """Настройка всех обработчиков бота"""
-    # Обработчик игры
-    game_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handlers.play_game, pattern='^play$')],
-        states={
-            handlers.GAME_CHOICE: [CallbackQueryHandler(handlers.choose_game, pattern='^game_')],
-            handlers.BET_PLACEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.place_bet)],
-            handlers.RESULT_SHOWN: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
-        },
-        fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False
-    )
-    
-    # Обработчик пополнения баланса
-    deposit_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(payments.deposit_start, pattern='^deposit$')],
-        states={
-            payments.DEPOSIT_AMOUNT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, payments.process_deposit_amount),
-                CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')
-            ],
-            payments.LINK_SENT: [
-                CallbackQueryHandler(payments.check_payment, pattern='^payment_confirmed$'),
-                CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')
-            ]
-        },
-        fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False
-    )
-
-    # Обработчик вывода средств
-    withdraw_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handlers.withdraw, pattern='^withdraw$')],
-        states={
-            handlers.WITHDRAW_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.process_withdrawal_amount)],
-            handlers.REQUEST_SENT: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
-        },
-        fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False
-    )
-    
-    # Обработчик установки никнейма
-    set_nickname_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(handlers.request_nickname, pattern='^set_nickname$'),
-            CommandHandler('set_nickname', handlers.request_nickname_from_command)
-        ],
-        states={
-            handlers.SETTING_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.save_nickname)],
-            handlers.NICKNAME_SET: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
-        },
-        fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False
-    )
-
-    # Главный обработчик
-    main_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', handlers.start)],
-        states={
-            handlers.MAIN_MENU: [
-                game_conv,
-                deposit_conv,
-                withdraw_conv,
-                set_nickname_conv,
-                CallbackQueryHandler(handlers.balance, pattern='^balance$'),
-                CallbackQueryHandler(handlers.rules, pattern='^rules$'),
-                CallbackQueryHandler(handlers.show_top, pattern='^top$'),
-                CallbackQueryHandler(handlers.start_over, pattern='^back_to_start$'),
-            ]
-        },
-        fallbacks=[CommandHandler('start', handlers.start)],
-        per_message=False
-    )
-
-    # Добавляем все обработчики
-    application.add_handler(main_handler)
-    
-    # Отдельные обработчики для кнопок (важное исправление!)
+    # Основные обработчики callback-запросов
+    application.add_handler(CallbackQueryHandler(handlers.play_game, pattern='^play$'))
     application.add_handler(CallbackQueryHandler(handlers.balance, pattern='^balance$'))
     application.add_handler(CallbackQueryHandler(handlers.rules, pattern='^rules$'))
     application.add_handler(CallbackQueryHandler(handlers.show_top, pattern='^top$'))
@@ -121,7 +42,23 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CallbackQueryHandler(payments.deposit_start, pattern='^deposit$'))
     application.add_handler(CallbackQueryHandler(handlers.withdraw, pattern='^withdraw$'))
     
-    # Отдельные команды
+    # Обработчики состояний
+    application.add_handler(ConversationHandler(
+        entry_points=[],
+        states={
+            handlers.GAME_CHOICE: [CallbackQueryHandler(handlers.choose_game, pattern='^game_')],
+            handlers.BET_PLACEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.place_bet)],
+            payments.DEPOSIT_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, payments.process_deposit_amount)],
+            payments.LINK_SENT: [CallbackQueryHandler(payments.check_payment, pattern='^payment_confirmed$')],
+            handlers.WITHDRAW_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.process_withdrawal_amount)],
+            handlers.SETTING_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.save_nickname)]
+        },
+        fallbacks=[],
+        per_message=False
+    ))
+    
+    # Команды
+    application.add_handler(CommandHandler('start', handlers.start))
     application.add_handler(CommandHandler('top', handlers.show_top))
     application.add_handler(CommandHandler('set_nickname', handlers.request_nickname_from_command))
     
@@ -165,7 +102,7 @@ async def run_webhook_mode(application: Application) -> None:
         
         try:
             data = await request.json()
-            logger.info(f"Получено обновление от Telegram")
+            logger.info(f"Получено обновление от Telegram: {data}")
             await application.update_queue.put(data)
             return web.Response()
         except Exception as e:
