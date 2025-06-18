@@ -31,22 +31,32 @@ async def post_init(application: Application) -> None:
 
 def setup_handlers(application: Application) -> None:
     """Настройка всех обработчиков бота"""
+    # Основные обработчики для главного меню
+    application.add_handler(CallbackQueryHandler(handlers.play_game, pattern='^play$'))
+    application.add_handler(CallbackQueryHandler(handlers.balance, pattern='^balance$'))
+    application.add_handler(CallbackQueryHandler(handlers.rules, pattern='^rules$'))
+    application.add_handler(CallbackQueryHandler(handlers.show_top, pattern='^top$'))
+    application.add_handler(CallbackQueryHandler(handlers.start_over, pattern='^back_to_start$'))
+    application.add_handler(CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$'))
+    application.add_handler(CallbackQueryHandler(handlers.request_nickname, pattern='^set_nickname$'))
+    application.add_handler(CallbackQueryHandler(payments.deposit_start, pattern='^deposit$'))
+    application.add_handler(CallbackQueryHandler(handlers.withdraw, pattern='^withdraw$'))
+    
     # Обработчик игры
     game_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handlers.play_game, pattern='^play$')],
+        entry_points=[],
         states={
             handlers.GAME_CHOICE: [CallbackQueryHandler(handlers.choose_game, pattern='^game_')],
             handlers.BET_PLACEMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.place_bet)],
             handlers.RESULT_SHOWN: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
         per_message=False
     )
     
     # Обработчик пополнения баланса
     deposit_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(payments.deposit_start, pattern='^deposit$')],
+        entry_points=[],
         states={
             payments.DEPOSIT_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, payments.process_deposit_amount),
@@ -58,65 +68,39 @@ def setup_handlers(application: Application) -> None:
             ]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
         per_message=False
     )
 
     # Обработчик вывода средств
     withdraw_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handlers.withdraw, pattern='^withdraw$')],
+        entry_points=[],
         states={
             handlers.WITHDRAW_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.process_withdrawal_amount)],
             handlers.REQUEST_SENT: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
         per_message=False
     )
     
     # Обработчик установки никнейма
     set_nickname_conv = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(handlers.request_nickname, pattern='^set_nickname$'),
-            CommandHandler('set_nickname', handlers.request_nickname_from_command)
-        ],
+        entry_points=[],
         states={
             handlers.SETTING_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.save_nickname)],
             handlers.NICKNAME_SET: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
         per_message=False
     )
 
-    # Главный обработчик
-    main_handler = ConversationHandler(
-        entry_points=[CommandHandler('start', handlers.start)],
-        states={
-            handlers.MAIN_MENU: [
-                game_conv,
-                deposit_conv,
-                withdraw_conv,
-                set_nickname_conv,
-                CallbackQueryHandler(handlers.balance, pattern='^balance$'),
-                CallbackQueryHandler(handlers.rules, pattern='^rules$'),
-                CallbackQueryHandler(handlers.show_top, pattern='^top$'),
-                CallbackQueryHandler(handlers.start_over, pattern='^back_to_start$'),
-            ]
-        },
-        fallbacks=[CommandHandler('start', handlers.start)],
-        per_message=False
-    )
-
-    # Добавляем все обработчики
-    application.add_handler(main_handler)
-    application.add_handler(CallbackQueryHandler(handlers.balance, pattern='^balance$'))
-    application.add_handler(CallbackQueryHandler(handlers.rules, pattern='^rules$'))
-    application.add_handler(CallbackQueryHandler(handlers.show_top, pattern='^top$'))
-    application.add_handler(CallbackQueryHandler(handlers.start_over, pattern='^back_to_start$'))
-    application.add_handler(CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$'))
+    # Добавляем ConversationHandler
+    application.add_handler(game_conv)
+    application.add_handler(deposit_conv)
+    application.add_handler(withdraw_conv)
+    application.add_handler(set_nickname_conv)
     
-    # Отдельные команды
+    # Команды
+    application.add_handler(CommandHandler('start', handlers.start))
     application.add_handler(CommandHandler('top', handlers.show_top))
     application.add_handler(CommandHandler('set_nickname', handlers.request_nickname_from_command))
     
@@ -127,6 +111,9 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler('sub_balance', admin.subtract_from_balance))
     application.add_handler(CommandHandler('broadcast', admin.broadcast_message))
     application.add_handler(CommandHandler('server_stats', admin.show_server_stats))
+    
+    # Обработчик для неизвестных команд
+    application.add_handler(MessageHandler(filters.ALL, handlers.unknown_command))
 
 async def start_webhook(application: Application) -> None:
     """Запуск в режиме вебхука"""
@@ -149,22 +136,19 @@ async def run_webhook_mode(application: Application) -> None:
     
     async def telegram_webhook(request):
         """Обработчик входящих обновлений Telegram"""
-        # Логируем входящий запрос для отладки
-        logger.debug(f"Incoming request headers: {dict(request.headers)}")
-        
         # Проверка секретного токена
         secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
         if secret_token != WEBHOOK_SECRET:
-            logger.warning(f"Invalid secret token: {secret_token}")
+            logger.warning(f"Неверный секретный токен: {secret_token}")
             return web.Response(status=403)
         
         try:
             data = await request.json()
-            logger.debug(f"Received update: {data}")
+            logger.debug(f"Получено обновление: {data}")
             await application.update_queue.put(data)
             return web.Response()
         except Exception as e:
-            logger.error(f"Error processing update: {e}")
+            logger.error(f"Ошибка обработки обновления: {e}")
             return web.Response(status=500)
     
     async def health_check(request):
