@@ -40,7 +40,8 @@ def setup_handlers(application: Application) -> None:
             handlers.RESULT_SHOWN: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU }
+        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
+        per_message=False  # Добавлено для устранения предупреждения
     )
     
     # Обработчик пополнения баланса
@@ -57,7 +58,8 @@ def setup_handlers(application: Application) -> None:
             ]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU }
+        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
+        per_message=False  # Добавлено для устранения предупреждения
     )
 
     # Обработчик вывода средств
@@ -68,7 +70,8 @@ def setup_handlers(application: Application) -> None:
             handlers.REQUEST_SENT: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU }
+        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
+        per_message=False  # Добавлено для устранения предупреждения
     )
     
     # Обработчик установки никнейма
@@ -82,7 +85,8 @@ def setup_handlers(application: Application) -> None:
             handlers.NICKNAME_SET: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
-        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU }
+        map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
+        per_message=False  # Добавлено для устранения предупреждения
     )
 
     # Главный обработчик
@@ -101,6 +105,7 @@ def setup_handlers(application: Application) -> None:
             ]
         },
         fallbacks=[CommandHandler('start', handlers.start)],
+        per_message=False  # Добавлено для устранения предупреждения
     )
 
     application.add_handler(main_handler)
@@ -131,8 +136,41 @@ async def start_polling(application: Application) -> None:
     logger.info("Бот запущен в режиме поллинга...")
     await application.start_polling(allowed_updates=True)
 
-def main() -> None:
-    """Основная функция запуска бота"""
+async def run_webhook_mode(application: Application) -> None:
+    """Запуск веб-сервера для обработки вебхуков"""
+    from aiohttp import web
+    
+    async def telegram_webhook(request):
+        """Обработчик входящих обновлений Telegram"""
+        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+            return web.Response(status=403)
+        
+        await application.update_queue.put(await request.json())
+        return web.Response()
+    
+    async def health_check(request):
+        """Проверка работоспособности сервера"""
+        return web.Response(text="OK")
+    
+    app = web.Application()
+    app.router.add_post('/telegram', telegram_webhook)
+    app.router.add_get('/health', health_check)
+    app.router.add_get('/', health_check)  # Добавлен корневой эндпоинт
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
+    
+    logger.info(f"Сервер запущен на порту {PORT}")
+    await start_webhook(application)
+    
+    # Бесконечный цикл для поддержания работы приложения
+    while True:
+        await asyncio.sleep(3600)
+
+async def main() -> None:
+    """Основная асинхронная функция запуска бота"""
     # Создание приложения
     builder = Application.builder().token(TELEGRAM_TOKEN)
     builder.post_init(post_init)
@@ -147,46 +185,10 @@ def main() -> None:
         logger.info(f"URL: {WEBHOOK_URL}")
         logger.info(f"PORT: {PORT}")
         logger.info(f"Secret: {WEBHOOK_SECRET[:3]}...")
-        
-        # Создание веб-сервера
-        from aiohttp import web
-        
-        async def telegram_webhook(request):
-            """Обработчик входящих обновлений Telegram"""
-            if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
-                return web.Response(status=403)
-            
-            await application.update_queue.put(await request.json())
-            return web.Response()
-        
-        async def health_check(request):
-            """Проверка работоспособности сервера"""
-            return web.Response(text="OK")
-        
-        app = web.Application()
-        app.router.add_post('/telegram', telegram_webhook)
-        app.router.add_get('/health', health_check)
-        
-        async def run_app():
-            """Запуск веб-сервера"""
-            runner = web.AppRunner(app)
-            await runner.setup()
-            site = web.TCPSite(runner, '0.0.0.0', PORT)
-            await site.start()
-            
-            logger.info(f"Сервер запущен на порту {PORT}")
-            await start_webhook(application)
-            
-            # Бесконечный цикл для поддержания работы приложения
-            while True:
-                await asyncio.sleep(3600)
-        
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(run_app())
-        
+        await run_webhook_mode(application)
     else:
         logger.info("Запуск в режиме POLLING")
-        application.run_polling(allowed_updates=True)
+        await start_polling(application)
 
 if __name__ == "__main__":
     asyncio.run(main())
