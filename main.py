@@ -41,7 +41,7 @@ def setup_handlers(application: Application) -> None:
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
         map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False  # Добавлено для устранения предупреждения
+        per_message=False
     )
     
     # Обработчик пополнения баланса
@@ -59,7 +59,7 @@ def setup_handlers(application: Application) -> None:
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
         map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False  # Добавлено для устранения предупреждения
+        per_message=False
     )
 
     # Обработчик вывода средств
@@ -71,7 +71,7 @@ def setup_handlers(application: Application) -> None:
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
         map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False  # Добавлено для устранения предупреждения
+        per_message=False
     )
     
     # Обработчик установки никнейма
@@ -86,7 +86,7 @@ def setup_handlers(application: Application) -> None:
         },
         fallbacks=[CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')],
         map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU },
-        per_message=False  # Добавлено для устранения предупреждения
+        per_message=False
     )
 
     # Главный обработчик
@@ -105,7 +105,7 @@ def setup_handlers(application: Application) -> None:
             ]
         },
         fallbacks=[CommandHandler('start', handlers.start)],
-        per_message=False  # Добавлено для устранения предупреждения
+        per_message=False
     )
 
     application.add_handler(main_handler)
@@ -120,6 +120,10 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler('sub_balance', admin.subtract_from_balance))
     application.add_handler(CommandHandler('broadcast', admin.broadcast_message))
     application.add_handler(CommandHandler('server_stats', admin.show_server_stats))
+    
+    # Добавляем обработчик для всех callback'ов
+    application.add_handler(CallbackQueryHandler(handlers.start_over, pattern='^back_to_start$'))
+    application.add_handler(CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$'))
 
 async def start_webhook(application: Application) -> None:
     """Запуск в режиме вебхука"""
@@ -155,7 +159,7 @@ async def run_webhook_mode(application: Application) -> None:
     app = web.Application()
     app.router.add_post('/telegram', telegram_webhook)
     app.router.add_get('/health', health_check)
-    app.router.add_get('/', health_check)  # Добавлен корневой эндпоинт
+    app.router.add_get('/', health_check)
     
     runner = web.AppRunner(app)
     await runner.setup()
