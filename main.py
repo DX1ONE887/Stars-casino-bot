@@ -108,10 +108,17 @@ def setup_handlers(application: Application) -> None:
         per_message=False
     )
 
+    # Добавляем все обработчики
     application.add_handler(main_handler)
+    application.add_handler(CallbackQueryHandler(handlers.balance, pattern='^balance$'))
+    application.add_handler(CallbackQueryHandler(handlers.rules, pattern='^rules$'))
+    application.add_handler(CallbackQueryHandler(handlers.show_top, pattern='^top$'))
+    application.add_handler(CallbackQueryHandler(handlers.start_over, pattern='^back_to_start$'))
+    application.add_handler(CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$'))
     
     # Отдельные команды
     application.add_handler(CommandHandler('top', handlers.show_top))
+    application.add_handler(CommandHandler('set_nickname', handlers.request_nickname_from_command))
     
     # Админские команды
     application.add_handler(CommandHandler('admin', admin.admin_panel))
@@ -120,10 +127,6 @@ def setup_handlers(application: Application) -> None:
     application.add_handler(CommandHandler('sub_balance', admin.subtract_from_balance))
     application.add_handler(CommandHandler('broadcast', admin.broadcast_message))
     application.add_handler(CommandHandler('server_stats', admin.show_server_stats))
-    
-    # Добавляем обработчик для всех callback'ов
-    application.add_handler(CallbackQueryHandler(handlers.start_over, pattern='^back_to_start$'))
-    application.add_handler(CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$'))
 
 async def start_webhook(application: Application) -> None:
     """Запуск в режиме вебхука"""
@@ -146,11 +149,23 @@ async def run_webhook_mode(application: Application) -> None:
     
     async def telegram_webhook(request):
         """Обработчик входящих обновлений Telegram"""
-        if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+        # Логируем входящий запрос для отладки
+        logger.debug(f"Incoming request headers: {dict(request.headers)}")
+        
+        # Проверка секретного токена
+        secret_token = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        if secret_token != WEBHOOK_SECRET:
+            logger.warning(f"Invalid secret token: {secret_token}")
             return web.Response(status=403)
         
-        await application.update_queue.put(await request.json())
-        return web.Response()
+        try:
+            data = await request.json()
+            logger.debug(f"Received update: {data}")
+            await application.update_queue.put(data)
+            return web.Response()
+        except Exception as e:
+            logger.error(f"Error processing update: {e}")
+            return web.Response(status=500)
     
     async def health_check(request):
         """Проверка работоспособности сервера"""
