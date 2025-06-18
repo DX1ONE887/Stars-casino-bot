@@ -9,6 +9,11 @@ ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 YOOMONEY_ACCESS_TOKEN = os.getenv("YOOMONEY_ACCESS_TOKEN")
 YOOMONEY_WALLET = os.getenv("YOOMONEY_WALLET")
 
+WEBHOOK_MODE = os.getenv("WEBHOOK_MODE", "False").lower() == "true"
+PORT = int(os.getenv("PORT", 10000))
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip('/')
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+
 MIN_DEPOSIT = int(os.getenv("MIN_DEPOSIT", 2))
 MAX_DEPOSIT = int(os.getenv("MAX_DEPOSIT", 100000))
 
