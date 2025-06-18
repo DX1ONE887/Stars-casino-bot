@@ -29,17 +29,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Обработчик неизвестных команд"""
+    logger.warning(f"Получена неизвестная команда: {update.message.text if update.message else 'callback'}")
+    
     if update.message:
         await update.message.reply_text(
             "Неизвестная команда. Используйте /start для начала работы.",
-            reply_markup=get_back_to_menu_keyboard_nested()
+            reply_markup=ui.get_back_to_menu_keyboard_nested()
         )
     elif update.callback_query:
         query = update.callback_query
         await query.answer()
         await query.edit_message_text(
             "Неизвестная команда. Возвращаемся в меню.",
-            reply_markup=get_main_menu_keyboard()
+            reply_markup=ui.get_main_menu_keyboard()
         )
     return MAIN_MENU
 
