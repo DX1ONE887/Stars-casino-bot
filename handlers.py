@@ -310,7 +310,8 @@ async def save_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     user = update.effective_user
     logger.info(f"Пользователь {user.id} пытается установить никнейм: {nickname}")
     
-    if not (3 <= len(nickname) <= 15 or not re.match(r'^[a-zA-Z0-9_-]+$', nickname):
+    # Исправленное условие проверки никнейма
+    if len(nickname) < 3 or len(nickname) > 15 or not re.match(r'^[a-zA-Z0-9_-]+$', nickname):
         error_msg = "❌ <b>Ошибка:</b> Никнейм должен быть длиной от 3 до 15 символов и содержать только латинские буквы, цифры, знаки подчеркивания (_) или дефисы (-)."
         logger.warning(f"Некорректный никнейм: {nickname}")
         await update.message.reply_html(error_msg)
