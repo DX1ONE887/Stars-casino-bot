@@ -1,5 +1,6 @@
-import logging
+import os
 import asyncio
+import logging
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -8,29 +9,28 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-
-from config import TELEGRAM_TOKEN
+from config import TELEGRAM_TOKEN, WEBHOOK_MODE, PORT, WEBHOOK_URL, WEBHOOK_SECRET
 import database
 import handlers
 import payments
 import admin
 
+# Настройка логирования
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", 
+    level=logging.INFO
 )
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 async def post_init(application: Application) -> None:
+    """Инициализация после запуска приложения"""
     await database.init_db()
     logger.info("База данных успешно инициализирована.")
     payments.setup_payment_verification(application)
 
-def main() -> None:
-    builder = Application.builder().token(TELEGRAM_TOKEN)
-    builder.post_init(post_init)
-    application = builder.build()
-    
+def setup_handlers(application: Application) -> None:
+    """Настройка всех обработчиков бота"""
     # Обработчик игры
     game_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(handlers.play_game, pattern='^play$')],
@@ -43,7 +43,7 @@ def main() -> None:
         map_to_parent={ ConversationHandler.END: handlers.MAIN_MENU }
     )
     
-    # Обработчик пополнения (УПРОЩЕННЫЙ)
+    # Обработчик пополнения баланса
     deposit_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(payments.deposit_start, pattern='^deposit$')],
         states={
@@ -73,7 +73,10 @@ def main() -> None:
     
     # Обработчик установки никнейма
     set_nickname_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(handlers.request_nickname, pattern='^set_nickname$')],
+        entry_points=[
+            CallbackQueryHandler(handlers.request_nickname, pattern='^set_nickname$'),
+            CommandHandler('set_nickname', handlers.request_nickname_from_command)
+        ],
         states={
             handlers.SETTING_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.save_nickname)],
             handlers.NICKNAME_SET: [CallbackQueryHandler(handlers.back_to_menu, pattern='^main_menu_from_nested$')]
@@ -102,8 +105,8 @@ def main() -> None:
 
     application.add_handler(main_handler)
     
+    # Отдельные команды
     application.add_handler(CommandHandler('top', handlers.show_top))
-    application.add_handler(CommandHandler('set_nickname', handlers.request_nickname_from_command))
     
     # Админские команды
     application.add_handler(CommandHandler('admin', admin.admin_panel))
@@ -113,8 +116,77 @@ def main() -> None:
     application.add_handler(CommandHandler('broadcast', admin.broadcast_message))
     application.add_handler(CommandHandler('server_stats', admin.show_server_stats))
 
-    logger.info("Бот запущен...")
-    application.run_polling(allowed_updates=True)
+async def start_webhook(application: Application) -> None:
+    """Запуск в режиме вебхука"""
+    await application.bot.set_webhook(
+        url=f"{WEBHOOK_URL}/telegram",
+        secret_token=WEBHOOK_SECRET,
+        drop_pending_updates=True
+    )
+    logger.info(f"Webhook установлен на {WEBHOOK_URL}/telegram")
+
+async def start_polling(application: Application) -> None:
+    """Запуск в режиме поллинга"""
+    await application.bot.delete_webhook(drop_pending_updates=True)
+    logger.info("Бот запущен в режиме поллинга...")
+    await application.start_polling(allowed_updates=True)
+
+def main() -> None:
+    """Основная функция запуска бота"""
+    # Создание приложения
+    builder = Application.builder().token(TELEGRAM_TOKEN)
+    builder.post_init(post_init)
+    application = builder.build()
+    
+    # Настройка обработчиков
+    setup_handlers(application)
+    
+    # Запуск в соответствующем режиме
+    if WEBHOOK_MODE and WEBHOOK_URL and WEBHOOK_SECRET:
+        logger.info("Запуск в режиме WEBHOOK")
+        logger.info(f"URL: {WEBHOOK_URL}")
+        logger.info(f"PORT: {PORT}")
+        logger.info(f"Secret: {WEBHOOK_SECRET[:3]}...")
+        
+        # Создание веб-сервера
+        from aiohttp import web
+        
+        async def telegram_webhook(request):
+            """Обработчик входящих обновлений Telegram"""
+            if request.headers.get("X-Telegram-Bot-Api-Secret-Token") != WEBHOOK_SECRET:
+                return web.Response(status=403)
+            
+            await application.update_queue.put(await request.json())
+            return web.Response()
+        
+        async def health_check(request):
+            """Проверка работоспособности сервера"""
+            return web.Response(text="OK")
+        
+        app = web.Application()
+        app.router.add_post('/telegram', telegram_webhook)
+        app.router.add_get('/health', health_check)
+        
+        async def run_app():
+            """Запуск веб-сервера"""
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, '0.0.0.0', PORT)
+            await site.start()
+            
+            logger.info(f"Сервер запущен на порту {PORT}")
+            await start_webhook(application)
+            
+            # Бесконечный цикл для поддержания работы приложения
+            while True:
+                await asyncio.sleep(3600)
+        
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(run_app())
+        
+    else:
+        logger.info("Запуск в режиме POLLING")
+        application.run_polling(allowed_updates=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
